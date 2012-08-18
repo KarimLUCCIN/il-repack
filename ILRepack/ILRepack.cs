@@ -115,6 +115,8 @@ namespace ILRepacking
         public bool NoRepackRes { get; set; }
         public bool KeepOtherVersionReferences { get; set; }
 
+        public bool MetadataOnly { get; set; }
+
         internal List<string> MergedAssemblyFiles { get; set; }
         // contains all 'other' assemblies, but not the primary assembly
         internal List<AssemblyDefinition> OtherAssemblies { get; set; }
@@ -322,6 +324,7 @@ namespace ILRepacking
             XmlDocumentation = cmd.Modifier("xmldocs");
             NoRepackRes = cmd.Modifier("norepackres");
             KeepOtherVersionReferences = cmd.Modifier("keepotherversionreferences");
+            MetadataOnly = cmd.Modifier("meta");
 
             SetSearchDirectories(cmd.Options("lib"));
 
@@ -363,6 +366,8 @@ namespace ILRepacking
             Console.WriteLine(@" - /usefullpublickeyforreferences - NOT IMPLEMENTED");
             Console.WriteLine(@" - /align             - NOT IMPLEMENTED");
             Console.WriteLine(@" - /closed            - NOT IMPLEMENTED");
+
+            Console.WriteLine(@" - /meta              generate a metadata only assembly");   
             
             Console.WriteLine(@" - /allowdup:Type     allows the specified type for being duplicated in input assemblies");
             Console.WriteLine(@" - /allowduplicateresources allows to duplicate resources in output assembly (by default they're ignored)");
@@ -384,8 +389,10 @@ namespace ILRepacking
             OtherAssemblies = new List<AssemblyDefinition>();
             // TODO: this could be parallelized to gain speed
             bool mergedDebugInfo = false;
-            foreach (string assembly in MergedAssemblyFiles)
+            foreach (var currentAsm in MergedAssemblyFiles)
             {
+                var assembly = currentAsm;
+
                 INFO("Adding assembly for merge: " + assembly);
                 try
                 {
@@ -398,6 +405,13 @@ namespace ILRepacking
                     AssemblyDefinition mergeAsm;
                     try
                     {
+                        if (!File.Exists(assembly))
+                        {
+                            var dotNetAsm = Assembly.LoadWithPartialName(assembly);
+                            if (dotNetAsm != null)
+                                assembly = dotNetAsm.Location;
+                        }
+
                         mergeAsm = AssemblyDefinition.ReadAssembly(assembly, rp);
                     }
                     catch
@@ -849,7 +863,11 @@ namespace ILRepacking
             foreach (var r in PrimaryAssemblyDefinition.Modules.SelectMany(x => x.Types))
             {
                 VERBOSE("- Importing " + r);
-                Import(r, TargetAssemblyMainModule.Types, false);
+
+                if (!ShouldImportType(r))
+                    VERBOSE(String.Format("Type skipped : {0}", r.Name));
+                else
+                    Import(r, TargetAssemblyMainModule.Types, false);
             }
             foreach (var m in OtherAssemblies.SelectMany(x => x.Modules))
             {
@@ -862,9 +880,38 @@ namespace ILRepacking
                     {
                         internalize = !ExcludeInternalizeMatches(r.FullName);
                     }
-                    importedTypes.Add(Import(r, TargetAssemblyMainModule.Types, internalize));
+
+                    if (!ShouldImportType(r))
+                        VERBOSE(String.Format("Type skipped : {0}", r.Name));
+                    else
+                        importedTypes.Add(Import(r, TargetAssemblyMainModule.Types, internalize));
                 }
             }
+        }
+
+        private bool ShouldImportType(TypeDefinition r)
+        {
+            return !MetadataOnly || (r.Name != "<Module>" && (r.IsPublic || r.IsNestedPublic));
+        }
+
+        private bool ShouldImportField(FieldDefinition f)
+        {
+            return !MetadataOnly || f.IsPublic;
+        }
+
+        private bool ShouldImportEvent(EventDefinition evt)
+        {
+            return !MetadataOnly || (evt.AddMethod.IsPublic || evt.RemoveMethod.IsPublic);
+        }
+
+        private bool ShouldImportProperty(PropertyDefinition prop)
+        {
+            return !MetadataOnly || ((prop.SetMethod != null && prop.SetMethod.IsPublic) || (prop.GetMethod != null && prop.GetMethod.IsPublic));
+        }
+
+        private bool ShouldImportMethod(MethodDefinition meth)
+        {
+            return !MetadataOnly || (meth.IsPublic);
         }
 
         private void RepackReferences()
@@ -1533,8 +1580,9 @@ namespace ILRepacking
             nm.ReturnType = Import(meth.ReturnType, nm);
             CopyCustomAttributes(meth.MethodReturnType.CustomAttributes, nm.MethodReturnType.CustomAttributes, nm);
 
-            if (meth.HasBody)
+            if (meth.HasBody && !MetadataOnly)
                 CloneTo(meth.Body, nm);
+
             meth.Body = null; // frees memory
 
             nm.IsAddOn = meth.IsAddOn;
@@ -1564,7 +1612,7 @@ namespace ILRepacking
 
                 if (instr.OpCode.Code == Code.Calli)
                 {
-                    ni = Instruction.Create(instr.OpCode, (CallSite)instr.Operand);
+                    ni = Instruction.Create(instr.OpCode, (Mono.Cecil.CallSite)instr.Operand);
                 }
                 else switch (instr.OpCode.OperandType)
                 {
@@ -1732,18 +1780,36 @@ namespace ILRepacking
 
             // nested types first (are never internalized)
             foreach (TypeDefinition nested in type.NestedTypes)
-                Import(nested, nt.NestedTypes, false);
+            {
+                if (ShouldImportType(nested))
+                    Import(nested, nt.NestedTypes, false);
+            }
+
             foreach (FieldDefinition field in type.Fields)
-                CloneTo(field, nt);
+            {
+                if (ShouldImportField(field))
+                    CloneTo(field, nt);
+            }
 
             // methods before fields / events
             foreach (MethodDefinition meth in type.Methods)
-                CloneTo(meth, nt, justCreatedType);
+            {
+                if (ShouldImportMethod(meth))
+                    CloneTo(meth, nt, justCreatedType);
+            }
 
             foreach (EventDefinition evt in type.Events)
-                CloneTo(evt, nt, nt.Events);
+            {
+                if (ShouldImportEvent(evt))
+                    CloneTo(evt, nt, nt.Events);
+            }
+
             foreach (PropertyDefinition prop in type.Properties)
-                CloneTo(prop, nt, nt.Properties);
+            {
+                if (ShouldImportProperty(prop))
+                    CloneTo(prop, nt, nt.Properties);
+            }
+
             return nt;
         }
 
