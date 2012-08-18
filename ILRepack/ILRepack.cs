@@ -723,6 +723,7 @@ namespace ILRepacking
             }
 
             INFO("Writing output assembly to disk");
+
             var parameters = new WriterParameters();
             if ((snkp != null) && !DelaySign)
                 parameters.StrongNameKeyPair = snkp;
@@ -891,27 +892,27 @@ namespace ILRepacking
 
         private bool ShouldImportType(TypeDefinition r)
         {
-            return !MetadataOnly || (r.Name != "<Module>" && (r.IsPublic || r.IsNestedPublic));
+            return !MetadataOnly || (r.Name != "<Module>" && (r.IsPublic || r.IsNestedPublic || r.IsNestedFamily || r.IsNestedFamilyAndAssembly || r.IsNestedFamilyOrAssembly));
         }
 
         private bool ShouldImportField(FieldDefinition f)
         {
-            return !MetadataOnly || f.IsPublic;
+            return !MetadataOnly || (f.IsPublic || f.IsFamily);
         }
 
         private bool ShouldImportEvent(EventDefinition evt)
         {
-            return !MetadataOnly || (evt.AddMethod.IsPublic || evt.RemoveMethod.IsPublic);
+            return ShouldImportMethod(evt.AddMethod) || ShouldImportMethod(evt.RemoveMethod);
         }
 
         private bool ShouldImportProperty(PropertyDefinition prop)
         {
-            return !MetadataOnly || ((prop.SetMethod != null && prop.SetMethod.IsPublic) || (prop.GetMethod != null && prop.GetMethod.IsPublic));
+            return ShouldImportMethod(prop.SetMethod) || ShouldImportMethod(prop.GetMethod);
         }
 
         private bool ShouldImportMethod(MethodDefinition meth)
         {
-            return !MetadataOnly || (meth.IsPublic);
+            return meth != null && (!MetadataOnly || (meth.IsPublic || meth.IsFamily || meth.IsFamilyAndAssembly || meth.IsFamilyOrAssembly));
         }
 
         private void RepackReferences()
