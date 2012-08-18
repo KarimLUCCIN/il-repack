@@ -1519,12 +1519,17 @@ namespace ILRepacking
 
         private void CloneTo(PropertyDefinition prop, TypeDefinition nt, Collection<PropertyDefinition> col)
         {
+            /* FIX Removed this check because
+             * This prevents properties overload, used to declare for exemple
+             * this[string] and this[int]
+             * */
+
             // ignore duplicate property
-            if (nt.Properties.Any(x => x.Name == prop.Name))
-            {
-                IGNOREDUP("property", prop);
-                return;
-            }
+            //if (nt.Properties.Any(x => x.Name == prop.Name))
+            //{
+            //    IGNOREDUP("property", prop);
+            //    return;
+            //}
 
             PropertyDefinition pd = new PropertyDefinition(prop.Name, prop.Attributes, Import(prop.PropertyType, nt));
             col.Add(pd);
