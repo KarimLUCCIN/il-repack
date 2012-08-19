@@ -16,6 +16,7 @@ A console application has been released (can be used as DLL as well), using same
 `Syntax: ILRepack.exe [options] /out:<path> <path_to_primary> [<other_assemblies> ...]`
 
   - /help              displays this usage
+  - /meta              generate a metadata only assembly
  - /keyfile:<path>    specifies a keyfile to sign the output assembly
  - /log:<logfile>     enable logging (to a file, if given) (default is disabled)
  - /ver:M.X.Y.Z       target assembly version
